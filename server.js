@@ -31,17 +31,20 @@ con.connect(function(err) {
     if (err) throw err;
     console.log("Database connected!");
 
+    // Set reading interval
     UpdateFrequency(D0_label,5000)
 
     // Select M100 frequency from table
-    con.query("SELECT Frequency FROM Device_Description WHERE label = '" + M100_label + "'", function (err, result, fields) {
+    var kapi_sql = "SELECT Frequency FROM Device_Description WHERE label = '" + M100_label + "'"
+    con.query(kapi_sql, function (err, result, fields) {
         if (err) throw err;
         global.Kapi_Frequency = result[0].Frequency
         console.log('Kapi Interval: ' + global.Kapi_Frequency);
       }); 
     
     // Select D0 frequency from table
-    con.query("SELECT Frequency FROM Device_Description WHERE label = '" + D0_label + "'", function (err, result, fields) {
+    var sicaklik_sql = "SELECT Frequency FROM Device_Description WHERE label = '" + D0_label + "'"
+    con.query(sicaklik_sql, function (err, result, fields) {
         if (err) throw err;
         global.Sicaklik_Frequency = result[0].Frequency
         console.log('Sicaklik Interval: ' + global.Sicaklik_Frequency);
@@ -51,24 +54,11 @@ con.connect(function(err) {
     socket.on('connect', function () {
 
         // Read Kapi value in interval
-        function readKapi() {
-            client.readCoils(M100,16).then(function (resp) {
-                value = resp.response.body.valuesAsArray
-                console.log(value[9])
-            }, console.error);
-            setTimeout(readKapi, global.Kapi_Frequency);
-        };
         readKapi();
           
         // Read Sicaklik value in interval
-        function readSicaklik() {
-            client.readHoldingRegisters(D0,16).then(function (resp) {
-                value = resp.response.body.valuesAsArray
-                console.log(value[0])
-            }, console.error);
-            setTimeout(readSicaklik, global.Sicaklik_Frequency);
-        };
         readSicaklik();
+        
     });
     socket.on('error', function (err) {
         console.log(err);
@@ -84,6 +74,57 @@ function UpdateFrequency(label, frequency){
     });
 }
 
+// Function to insert label, value and dateTime to table Device_Log
+function AddValue(label, value, datetime){
+    var sql = "INSERT INTO Device_Log (Label, Value, Date_Time) VALUES ('" + label + "', '" + value + "', '" + datetime + "')";
+    con.query(sql, function (err, result) {
+        if (err) throw err;
+        console.log("Value " + value + " inserted to table " + label + ' at ' + datetime);
+    });
+}
+
+// Function to get date and time
+function GetDateTime(){
+    var today = new Date();
+    var date = today.getFullYear()+'-'+(today.getMonth()+1)+'-'+today.getDate();
+    var time = today.getHours() + ":" + today.getMinutes() + ":" + today.getSeconds();
+    var dateTime = date+' '+time;
+    return dateTime
+}
+
+// Function to read value of kapi
+function readKapi() {
+    client.readCoils(M100,16).then(function (resp) {
+
+        // Get current date and time
+        dateTime = GetDateTime()
+
+        // Get Kapi value
+        kapi_value = resp.response.body.valuesAsArray[9]
+
+        // Add kapi log to Mysql table
+        AddValue(M100_label, kapi_value, dateTime)
+
+    }, console.error);
+    setTimeout(readKapi, global.Kapi_Frequency);
+};
+
+// Function to read value of sicaklik
+function readSicaklik() {
+    client.readHoldingRegisters(D0,16).then(function (resp) {
+        
+        // Get current date and time
+        dateTime = GetDateTime()
+
+        // Get Sicaklik value
+        sicaklik_value = resp.response.body.valuesAsArray[0]
+
+        // Add Sicaklik log to Mysql table
+        AddValue(D0_label, sicaklik_value, dateTime)
+
+    }, console.error);
+    setTimeout(readSicaklik, global.Sicaklik_Frequency);
+};
 
 //     //     // Kapi write
 //     // client.writeSingleCoil(8292,0).then(function (resp) {
@@ -118,25 +159,3 @@ function UpdateFrequency(label, frequency){
 //     //     value = resp.response.body.valuesAsArray
 //     //     console.log(value)
 //     // }, console.error);
-
-// // Create a table
-// var sql = "CREATE TABLE Device_Log (Label VARCHAR(30), Value VARCHAR(255), Date_Time DATETIME)"
-// var sql_Drop_table = "DROP TABLE Device_Description"
-// con.query(sql, function (err, result) {
-//     if (err) throw err;
-//     console.log("Table created");
-// });
-
-// // Insert into a table
-// var sql = "INSERT INTO Device_Description (Label, Frequency, Description) VALUES ('M100', 60, 'Opens/Closes Door')";
-// con.query(sql, function (err, result) {
-//     if (err) throw err;
-//     console.log("1 record inserted");
-// });
-
-// // Show Tables in database
-// var sql_Show_Tables = "SHOW TABLES"
-// con.query(sql_Show_Tables, function (err, result) {
-//     if (err) throw err;
-//     console.log(result);
-// });
