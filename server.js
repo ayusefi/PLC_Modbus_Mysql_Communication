@@ -16,46 +16,6 @@ var con = mysql.createConnection({
     database: databaseObject.database
   });
 
-
-
-
-const plc_labels = {
-    D100_label : 'D100',
-    D202_label : 'D202',
-    D248_label : 'D248',
-    D324_label : 'D324',
-    D352_label : 'D352',
-    M100_label : 'M100',
-    M105_label : 'M105',
-    M109_label : 'M109',
-    M110_label : 'M110',
-    M204_label : 'M204',
-    X0_label : 'X0',
-    Y3_label : 'Y3',
-    Y4_label : 'Y4'
-}
-
-const plc_addrss = {
-     D100 : 100,    // D100 Derecesi
-     D202 : 202,    // FIRIN SETI ISI
-     D248 : 248,    // AKTIF PISIRME DAKIKA
-     D324 : 324,    // PISIRMEYE KALAN DAKIKA
-     D352 : 352,    // PISIRMEYE KALAN SANIYE
-     M100 : 8292,   // FIRIN CALISTIR
-     M105 : 8297,   // FIRINCI LAMBA
-     M109 : 8301,   // M109 Bilgisi
-     M110 : 8302,   // PISIRME TAMAM
-     M204 : 8396,      // SISTEM ACMA KAPATMA
-     X0 : 0,        // M109 SW
-     Y3 : 0,        // FAN SOL
-     Y4 : 0        // FAN SAG
-}
-
-// PLC Variables
-
-
-
-
 // Connect to Database
 con.connect(function(err) {
     if (err) throw err;
@@ -63,35 +23,39 @@ con.connect(function(err) {
 
     // Read PLCs from database
     var plcs_read_sql = "SELECT * FROM PLCs"
-    con.query(plcs_read_sql, function (err, result1, fields) {
+    con.query(plcs_read_sql, function (err, PLC_result, fields) {
         if (err) throw err;
 
         // Iterate to every read PLC
-        result1.forEach(plc => {
+        PLC_result.forEach(plc => {
             const socket = new net.Socket()
             const client = new Modbus.client.TCP(socket, 1)
             const options = {
             'host' : plc.IP,
             'port' : plc.PORT
             }
+
+            // Connect to read PLC
             socket.connect(options, function(){
                 console.log('\x1b[32m%s\x1b[0m','PLC ' + plc.PLC_ID + ' Connected!');
             })
+
             // Set reading interval
             // UpdateFrequency(D100_label,5000)
             
-            var D100_sql = "SELECT * FROM Device_Description WHERE PLC_ID = " + plc.PLC_ID
-            con.query(D100_sql, function (err, result2, fields) {
+            var ADDRESS_sql = "SELECT * FROM Device_Description WHERE PLC_ID = " + plc.PLC_ID
+            con.query(ADDRESS_sql, function (err, ADDRESS_result, fields) {
                 if (err) throw err;
                 socket.on('connect', function(){
                     
-                    result2.forEach(add_label => {
-                        // Read D100 value in interval
-                        if (add_label.Label[0] == 'D'){
-                            D_Frequency = add_label.Frequency
+                    ADDRESS_result.forEach(ADDRESS => {
+
+                        // Read addresses starting with D value in specified interval
+                        if (ADDRESS.Label[0] == 'D'){
+                            D_Frequency = ADDRESS.Frequency
                             readD()
                             function readD() {
-                                dAddressStr = add_label.Label
+                                dAddressStr = ADDRESS.Label
                                 dAddress = dAddressStr.substring(1);
                                 dAddressInt = parseInt(dAddress)
                                 client.readHoldingRegisters(dAddressInt,16).then(function (resp) {
@@ -99,21 +63,22 @@ con.connect(function(err) {
                                     // Get current date and time
                                     dateTime = GetDateTime()
         
-                                    // Get D100 value
+                                    // Get address value
                                     D_value = resp.response.body.valuesAsArray[0]
         
-                                    // Add D100 log to Mysql table
-                                    AddValue(plc.PLC_ID, add_label.Label, D_value, dateTime)
+                                    // Add address log to Mysql table
+                                    AddValue(plc.PLC_ID, ADDRESS.Label, D_value, dateTime)
                                 }, console.error);
-                                setTimeout(readD, add_label.Frequency);
+                                setTimeout(readD, ADDRESS.Frequency);
                             };
-                            
                         }
-                        if (add_label.Label[0] == 'M'){
-                            D_Frequency = add_label.Frequency
+
+                        // Read addresses starting with M value in specified interval
+                        if (ADDRESS.Label[0] == 'M'){
+                            D_Frequency = ADDRESS.Frequency
                             readM()
                             function readM() {
-                                mAddressStr = add_label.Label
+                                mAddressStr = ADDRESS.Label
                                 mAddress = mAddressStr.substring(1);
                                 mAddressInt = 8192 + parseInt(mAddress)
                                 client.readCoils(mAddressInt,16).then(function (resp) {
@@ -121,21 +86,17 @@ con.connect(function(err) {
                                     // Get current date and time
                                     dateTime = GetDateTime()
         
-                                    // Get M109 value
+                                    // Get address value
                                     M_value = resp.response.body.valuesAsArray[0]
         
-                                    // Add M109 log to Mysql table
-                                    AddValue(plc.PLC_ID, add_label.Label, M_value, dateTime)
+                                    // Add address log to Mysql table
+                                    AddValue(plc.PLC_ID, ADDRESS.Label, M_value, dateTime)
         
                                 }, console.error);
-                                setTimeout(readM, add_label.Frequency);
-                            };
-                            
-                        } 
-
+                                setTimeout(readM, ADDRESS.Frequency);
+                            };  
+                        }
                     })
-
-                    
 
                     // Function to update frequency value of given label device
                     function UpdateFrequency(label, frequency){
@@ -163,16 +124,12 @@ con.connect(function(err) {
                         var dateTime = date+' '+time;
                         return dateTime
                     }
-
                 })
                     
                 socket.on('error', function (err) {
                     console.log('\x1b[31m%s\x1b[0m','PLC ' + plc.PLC_ID + ' could not connect!');
                 })
-                
             });
-
         });
     });
-    
 });
