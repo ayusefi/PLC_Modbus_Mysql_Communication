@@ -1,4 +1,6 @@
 const fs = require('fs');
+var async = require('async');
+
 
 // create a tcp modbus client
 const Modbus = require('jsmodbus')
@@ -26,8 +28,8 @@ con.connect(function(err) {
     con.query(plcs_read_sql, function (err, PLC_result, fields) {
         if (err) throw err;
 
-        // Iterate to every read PLC
-        PLC_result.forEach(plc => {
+        // Iterate in PLCs
+        async.map(PLC_result, function(plc, callback) {
             const socket = new net.Socket()
             const client = new Modbus.client.TCP(socket, 1)
             const options = {
@@ -42,14 +44,14 @@ con.connect(function(err) {
 
             // Set reading interval
             // UpdateFrequency(D100_label,5000)
-            
+
             var ADDRESS_sql = "SELECT * FROM Device_Description WHERE PLC_ID = " + plc.PLC_ID
             con.query(ADDRESS_sql, function (err, ADDRESS_result, fields) {
                 if (err) throw err;
                 socket.on('connect', function(){
-                    
-                    ADDRESS_result.forEach(ADDRESS => {
 
+                    // Iterate in addresses of plc
+                    async.map(ADDRESS_result, function(ADDRESS, callback) {
                         // Read addresses starting with D value in specified interval
                         if (ADDRESS.Label[0] == 'D'){
                             D_Frequency = ADDRESS.Frequency
@@ -62,10 +64,10 @@ con.connect(function(err) {
                             
                                     // Get current date and time
                                     dateTime = GetDateTime()
-        
+
                                     // Get address value
                                     D_value = resp.response.body.valuesAsArray[0]
-        
+
                                     // Add address log to Mysql table
                                     AddValue(plc.PLC_ID, ADDRESS.Label, D_value, dateTime)
                                 }, console.error);
@@ -82,21 +84,23 @@ con.connect(function(err) {
                                 mAddress = mAddressStr.substring(1);
                                 mAddressInt = 8192 + parseInt(mAddress)
                                 client.readCoils(mAddressInt,16).then(function (resp) {
-        
+
                                     // Get current date and time
                                     dateTime = GetDateTime()
-        
+
                                     // Get address value
                                     M_value = resp.response.body.valuesAsArray[0]
-        
+
                                     // Add address log to Mysql table
                                     AddValue(plc.PLC_ID, ADDRESS.Label, M_value, dateTime)
-        
+
                                 }, console.error);
                                 setTimeout(readM, ADDRESS.Frequency);
                             };  
                         }
-                    })
+                    }, function(err, results) {
+                        // results is an array of names
+                    });
 
                     // Function to update frequency value of given label device
                     function UpdateFrequency(label, frequency){
@@ -106,7 +110,7 @@ con.connect(function(err) {
                             console.log("1 record updated");
                         });
                     }
-    
+
                     // Function to insert label, value and dateTime to table Device_Log
                     function AddValue(plc, label, value, datetime){
                         var sql = "INSERT INTO Device_Log (PLC_ID, Label, Value, Date_Time) VALUES (" + plc + ", '" + label + "', '" + value + "', '" + datetime + "')";
@@ -115,7 +119,7 @@ con.connect(function(err) {
                             console.log("Value " + value + " inserted to PLC " + plc + " table " + label + ' at ' + datetime);
                         });
                     }
-    
+
                     // Function to get date and time
                     function GetDateTime(){
                         var today = new Date();
@@ -130,6 +134,9 @@ con.connect(function(err) {
                     console.log('\x1b[31m%s\x1b[0m','PLC ' + plc.PLC_ID + ' could not connect!');
                 })
             });
+        }, function(err, results) {
+            // results is an array of names
         });
     });
 });
+
